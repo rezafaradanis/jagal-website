@@ -1,3 +1,36 @@
-const cfg=window.JAGAL_CONFIG||{};const $=id=>document.getElementById(id);const n=v=>Number.isFinite(Number(v))?Number(v):0;const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
-async function loadEA(){const status=$('status');try{const r=await fetch('/api/proclubs?ts='+Date.now(),{cache:'no-store'});const d=await r.json();if(!d.ok)throw Error(d.message||d.error||'EA unavailable');const c=d.club||{};const p=d.squad||[];const m=d.recentMatches||[];$('matchesCount').textContent=n(c.gamesPlayed)||n(c.wins)+n(c.draws)+n(c.losses);$('wins').textContent=n(c.wins);$('draws').textContent=n(c.draws);$('losses').textContent=n(c.losses);$('goals').textContent=n(c.goalsFor);$('winrate').textContent=(d.winRate??0)+'%';status.textContent='LIVE · CLUB #'+d.club.id+' · '+d.platform+' · '+new Date(d.updatedAt).toLocaleString('id-ID');$('players').innerHTML=p.length?p.map(x=>'<article class="player"><small>'+esc(x.position||'PRO CLUBS')+'</small><strong>'+esc(x.name)+'</strong><p>'+n(x.goals)+' G · '+n(x.assists)+' A · '+(n(x.rating)?n(x.rating).toFixed(2):'--')+' AVG</p></article>').join(''):'<div class="loading">NO PLAYER DATA</div>';$('statsBody').innerHTML=p.length?p.slice().sort((a,b)=>n(b.goals)-n(a.goals)).map(x=>'<tr><td><b>'+esc(x.name)+'</b></td><td>'+esc(x.position||'--')+'</td><td>'+n(x.games)+'</td><td>'+n(x.goals)+'</td><td>'+n(x.assists)+'</td><td>'+(n(x.rating)?n(x.rating).toFixed(2):'--')+'</td></tr>').join(''):'<tr><td colspan="6">NO PLAYER DATA</td></tr>';$('results').innerHTML=m.length?m.map(x=>'<article class="match"><div><small>'+esc(x.matchType||'MATCH')+'</small><b>JAGAL vs '+esc(x.opponent||'OPPONENT')+'</b></div><strong class="score">'+n(x.goals)+' - '+n(x.goalsAgainst)+'</strong></article>').join(''):'<div class="loading">NO MATCH HISTORY</div>';}catch(e){status.textContent='EA LIVE DATA UNAVAILABLE · '+e.message;console.warn(e)}}
-$('refresh')?.addEventListener('click',loadEA);$('trialForm')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget;const note=$('trialNote');if(!window.supabase||!cfg.SUPABASE_URL||!cfg.SUPABASE_PUBLISHABLE_KEY){note.textContent='Supabase belum dikonfigurasi.';return}note.textContent='Submitting...';const db=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:false}});const payload=Object.fromEntries(new FormData(f).entries());const {error}=await db.from('trial_applications').insert(payload);if(error){note.textContent=error.message;return}f.reset();f.country.value='Indonesia';note.textContent='Application received.'});loadEA();setInterval(loadEA,300000);
+const cfg=window.JAGAL_CONFIG||{};
+const $=id=>document.getElementById(id);
+const n=v=>Number.isFinite(Number(v))?Number(v):0;
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+
+async function loadEA(){
+  const status=$('status');
+  try{
+    const r=await fetch('/api/proclubs?ts='+Date.now(),{cache:'no-store'});
+    const d=await r.json();
+    if(!d.ok) throw Error(d.message||d.error||'EA unavailable');
+    const c=d.club||{}, p=d.squad||[], m=d.recentMatches||[];
+    $('matchesCount').textContent=n(c.gamesPlayed)||n(c.wins)+n(c.draws)+n(c.losses);
+    $('wins').textContent=n(c.wins); $('draws').textContent=n(c.draws); $('losses').textContent=n(c.losses);
+    $('goals').textContent=n(c.goalsFor); $('winrate').textContent=(d.winRate??0)+'%';
+    status.textContent='LIVE · CLUB #'+d.club.id+' · '+d.platform+' · '+new Date(d.updatedAt).toLocaleString('id-ID');
+    $('players').innerHTML=p.length?p.map(x=>'<article class="player"><small>'+esc(x.position||'PRO CLUBS')+'</small><strong>'+esc(x.name)+'</strong><p>'+n(x.goals)+' G · '+n(x.assists)+' A · '+(n(x.rating)?n(x.rating).toFixed(2):'--')+' AVG</p></article>').join(''):'<div class="loading">NO PLAYER DATA</div>';
+    $('statsBody').innerHTML=p.length?p.slice().sort((a,b)=>n(b.goals)-n(a.goals)).map(x=>'<tr><td><b>'+esc(x.name)+'</b></td><td>'+esc(x.position||'--')+'</td><td>'+n(x.games)+'</td><td>'+n(x.goals)+'</td><td>'+n(x.assists)+'</td><td>'+(n(x.rating)?n(x.rating).toFixed(2):'--')+'</td></tr>').join(''):'<tr><td colspan="6">NO PLAYER DATA</td></tr>';
+    $('results').innerHTML=m.length?m.map(x=>'<article class="match"><div><small>'+esc(x.matchType||'MATCH')+'</small><b>JAGAL vs '+esc(x.opponent||'OPPONENT')+'</b></div><strong class="score">'+n(x.goals)+' - '+n(x.goalsAgainst)+'</strong></article>').join(''):'<div class="loading">NO MATCH HISTORY</div>';
+  }catch(e){status.textContent='EA LIVE DATA UNAVAILABLE · '+e.message;console.warn(e)}
+}
+$('refresh')?.addEventListener('click',loadEA);
+$('trialForm')?.addEventListener('submit',async e=>{
+  e.preventDefault();
+  const f=e.currentTarget, note=$('trialNote');
+  note.textContent='Submitting...';
+  try{
+    const payload=Object.fromEntries(new FormData(f).entries());
+    const r=await fetch('/api/trial',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const j=await r.json();
+    if(!j.ok) throw Error(j.error||'Submission failed');
+    f.reset(); f.country.value='Indonesia'; note.textContent='Application received.';
+  }catch(err){note.textContent=err.message}
+});
+loadEA();
+setInterval(loadEA,300000);
