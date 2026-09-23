@@ -26,39 +26,74 @@ async function ea(path, params = {}) {
     if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, value);
   });
 
-  let response;
   let lastError;
 
-  // EA sometimes blocks cloud/serverless IPs even though the same endpoint
-  // works from a normal browser. Try EA directly first.
+  // EA can block cloud/serverless IPs. Try the normal request first.
   try {
-    response = await fetchWithTimeout(url, { headers, method: 'GET' });
+    const response = await fetchWithTimeout(url, { headers, method: 'GET' });
+    const text = await response.text();
+    if (response.ok) {
+      try {
+        return JSON.parse(text);
+      } catch {
+        lastError = new Error('EA returned non-JSON data');
+      }
+    } else {
+      lastError = new Error(`EA API ${response.status}: ${text.slice(0, 180)}`);
+    }
   } catch (error) {
     lastError = error;
   }
 
-  // Fallback for serverless/cloud IPs blocked by EA.
-  if (!response || !response.ok) {
+  // Public proxy fallbacks. These are only used for public EA Pro Clubs data.
+  // Different proxies have different network paths, so one may work when another is blocked.
+  const proxies = [
+    {
+      name: 'corsfix',
+      url: `https://proxy.corsfix.com/?${url.toString()}`,
+      unwrap: text => text
+    },
+    {
+      name: 'allorigins',
+      url: `https://api.allorigins.win/raw?url=${encodeURIComponent(url.toString())}`,
+      unwrap: text => text
+    },
+    {
+      name: 'everyorigin',
+      url: `https://everyorigin.jwvbremen.nl/get?url=${encodeURIComponent(url.toString())}`,
+      unwrap: text => {
+        const wrapped = JSON.parse(text);
+        return wrapped?.contents ?? '';
+      }
+    }
+  ];
+
+  for (const proxy of proxies) {
     try {
-      const proxyUrl = `https://proxy.corsfix.com/?${url.toString()}`;
-      response = await fetchWithTimeout(proxyUrl, { headers, method: 'GET' });
+      const response = await fetchWithTimeout(proxy.url, {
+        method: 'GET',
+        headers: { accept: 'application/json, text/plain, */*' }
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        lastError = new Error(`${proxy.name} HTTP ${response.status}: ${text.slice(0, 120)}`);
+        continue;
+      }
+
+      const body = proxy.unwrap(text);
+      try {
+        return JSON.parse(body);
+      } catch {
+        lastError = new Error(`${proxy.name} returned non-JSON data`);
+      }
     } catch (error) {
-      lastError = error;
+      lastError = new Error(`${proxy.name}: ${error?.message || 'network error'}`);
     }
   }
 
-  if (!response) {
-    throw new Error(`EA API connection failed: ${lastError?.message || 'unknown network error'}`);
-  }
-
-  const text = await response.text();
-  if (!response.ok) throw new Error(`EA API ${response.status}: ${text.slice(0, 180)}`);
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error('EA returned non-JSON data');
-  }
+  throw new Error(
+    `EA API unavailable for ${path}: ${lastError?.message || 'unknown network error'}`
+  );
 }
 
 function records(value) {
