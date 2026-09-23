@@ -3,21 +3,62 @@ const CLUB_ID = '438867';
 const PLATFORM = 'common-gen5';
 
 const headers = {
-  accept: 'application/json',
+  accept: 'application/json, text/plain, */*',
   'accept-language': 'en-US,en;q=0.9',
   'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36',
   referer: 'https://www.ea.com/',
+  origin: 'https://www.ea.com',
 };
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function ea(path, params = {}) {
   const url = new URL(`${EA_BASE}/${path}`);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, value);
   });
-  const response = await fetch(url, { headers, method: 'GET' });
+
+  let response;
+  let lastError;
+
+  // EA sometimes blocks cloud/serverless IPs even though the same endpoint
+  // works from a normal browser. Try EA directly first.
+  try {
+    response = await fetchWithTimeout(url, { headers, method: 'GET' });
+  } catch (error) {
+    lastError = error;
+  }
+
+  // Fallback for serverless/cloud IPs blocked by EA.
+  if (!response || !response.ok) {
+    try {
+      const proxyUrl = `https://proxy.corsfix.com/?${url.toString()}`;
+      response = await fetchWithTimeout(proxyUrl, { headers, method: 'GET' });
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!response) {
+    throw new Error(`EA API connection failed: ${lastError?.message || 'unknown network error'}`);
+  }
+
   const text = await response.text();
-  if (!response.ok) throw new Error(`EA API ${response.status}`);
-  try { return JSON.parse(text); } catch { throw new Error('EA returned non-JSON data'); }
+  if (!response.ok) throw new Error(`EA API ${response.status}: ${text.slice(0, 180)}`);
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error('EA returned non-JSON data');
+  }
 }
 
 function records(value) {
