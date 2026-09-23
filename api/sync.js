@@ -18,16 +18,21 @@ module.exports = async (req, res) => {
     });
   }
 
+  let stage = 'init';
+
   try {
+    stage = 'create_supabase_client';
     const supabase = createClient(supabaseUrl, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
+    stage = 'ea_fetch';
     const snapshot = await getSnapshot({
       matchType: req.query?.matchType || 'leagueMatch',
       count: req.query?.count || 10
     });
 
+    stage = 'supabase_insert';
     const { error: snapshotError } = await supabase
       .from('club_snapshots')
       .insert({
@@ -36,7 +41,13 @@ module.exports = async (req, res) => {
         payload: snapshot
       });
 
-    if (snapshotError) throw snapshotError;
+    if (snapshotError) {
+      const err = new Error(snapshotError.message || 'Supabase insert failed');
+      err.code = snapshotError.code;
+      err.details = snapshotError.details;
+      err.hint = snapshotError.hint;
+      throw err;
+    }
 
     return res.status(200).json({
       ok: true,
@@ -47,7 +58,13 @@ module.exports = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       ok: false,
-      error: error.message,
+      stage,
+      error: error?.message || 'Unknown error',
+      name: error?.name || 'Error',
+      code: error?.code || error?.cause?.code || null,
+      cause: error?.cause?.message || null,
+      details: error?.details || null,
+      hint: error?.hint || null,
       clubId: CLUB_ID,
       platform: PLATFORM
     });
